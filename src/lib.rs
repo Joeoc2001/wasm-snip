@@ -327,18 +327,39 @@ fn snip_table_elements(module: &mut walrus::Module, to_snip: &HashSet<walrus::Fu
 
             for segment in &t.elem_segments {
                 let elements = elements.get_mut(*segment);
-                let walrus::ElementItems::Functions(fs) = &mut elements.items else {
-                    panic!("funcref table should only have elements of type functions");
-                };
-
-                fs.iter_mut()
-                    .filter(|f| to_snip.contains(f))
-                    .for_each(|el| {
-                        let ty = funcs.get(*el).ty();
-                        *el = *unreachable_funcs
-                            .entry(ty)
-                            .or_insert_with(|| make_unreachable_func(ty, types, locals, funcs));
-                    });
+                match &mut elements.items {
+                    walrus::ElementItems::Functions(fs) => {
+                        fs.iter_mut()
+                            .filter(|f| to_snip.contains(f))
+                            .for_each(|el| {
+                                let ty = funcs.get(*el).ty();
+                                *el = *unreachable_funcs.entry(ty).or_insert_with(|| {
+                                    make_unreachable_func(ty, types, locals, funcs)
+                                });
+                            });
+                    }
+                    walrus::ElementItems::Expressions(walrus::RefType::Funcref, const_exprs) => {
+                        const_exprs
+                            .iter_mut()
+                            .filter_map(|f| {
+                                if let walrus::ConstExpr::RefFunc(f) = f {
+                                    Some(f)
+                                } else {
+                                    None
+                                }
+                            })
+                            .filter(|f| to_snip.contains(f))
+                            .for_each(|el| {
+                                let ty = funcs.get(*el).ty();
+                                *el = *unreachable_funcs.entry(ty).or_insert_with(|| {
+                                    make_unreachable_func(ty, types, locals, funcs)
+                                });
+                            });
+                    }
+                    walrus::ElementItems::Expressions(..) => {
+                        panic!("funcref table should only have elements of type functions")
+                    }
+                }
             }
         }
     }
